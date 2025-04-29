@@ -1,13 +1,13 @@
 #!/bin/bash
 
-data_root='datasets/' # your data path (imagenet-r, imagenet-a in my case)
-dataset='A'  # I/A/R/V/S
-logdate='250129'  # name of the log file
-num_p=12  # number of online prompts
-selection_p=0.1
-lr=0.005
-ntx=4
-seed=6
-arch='ViT-B/16'  #e.g., 'RN50' or 'ViT-B/16'
+data_root=$1
+dataset=$2
+logdate=$3
+num_p=$4
+selection_p=$5
+lr=$6
+ntx=$7
+seed=$8
+arch=$9
 
-sh ./scripts/test_dynap.sh ${data_root} ${dataset} ${logdate} ${num_p} ${selection_p} ${lr} ${ntx} ${seed} ${arch}
+sh ./scripts/test_dynap.sh ${data_root} ${dataset} ${logdate} ${num_p} ${selection_p} ${lr} ${ntx} ${seed} ${arch} ${10} ${11}
