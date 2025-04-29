@@ -138,6 +138,7 @@ def load_model_weight(load_path, model, device, args):
 
 
 def validate(val_loader, model, criterion, args, output_mask=None):
+    device = get_device()
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     losses = AverageMeter('Loss', ':.4e', Summary.NONE)
     top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
@@ -154,9 +155,9 @@ def validate(val_loader, model, criterion, args, output_mask=None):
         end = time.time()
         for i, (images, target) in enumerate(val_loader):
             if args.gpu is not None:
-                images = images.cuda(args.gpu, non_blocking=True)
+                images = images.to(device, non_blocking=True)
             if torch.cuda.is_available():
-                target = target.cuda(args.gpu, non_blocking=True)
+                target = target.to(device, non_blocking=True)
 
             # compute output
             with torch.cuda.amp.autocast():

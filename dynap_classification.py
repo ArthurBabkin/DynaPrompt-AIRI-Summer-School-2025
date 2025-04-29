@@ -92,12 +92,12 @@ def softmax_entropy(x: torch.Tensor) -> torch.Tensor:
     """Entropy of softmax distribution from logits."""
     return -(x.softmax(-1) * x.log_softmax(-1)).sum(-1)
 
-def test_time_tuning(model, inputs, optimizer, scaler, args, log_file):
+def test_time_tuning(model, inputs, optimizer, scaler, args, log_file, device):
     if args.cocoop:
         image_feature, pgen_ctx = inputs
         pgen_ctx.requires_grad = True
         optimizer = torch.optim.AdamW([pgen_ctx], args.lr)
-    loss = torch.tensor(0.0).cuda()
+    loss = torch.tensor(0.0, device=device)
     for j in range(args.tta_steps):
         with torch.cuda.amp.autocast():
             if args.cocoop:
@@ -155,7 +155,7 @@ def test_time_tuning(model, inputs, optimizer, scaler, args, log_file):
         # Unscales the gradients of optimizer's assigned params in-place
         scaler.step(optimizer)
         scaler.update()
-        loss = torch.tensor(0.0).cuda()
+        loss = torch.tensor(0.0, device=device)
 
     if args.cocoop:
         return pgen_ctx
@@ -394,14 +394,14 @@ def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state,
                         model.prompt_learner.ctx[model.prompt_learner.ctx_order[0]] = model.prompt_learner.ctx[model.prompt_learner.ctx_order[0]] * 0
 
             optimizer.load_state_dict(optim_state)
-            p_s, raw_pred, raw_ent = test_time_tuning(model, images, optimizer, scaler, args, log_file)
+            p_s, raw_pred, raw_ent = test_time_tuning(model, images, optimizer, scaler, args, log_file, device)
 
         else:
             with torch.no_grad():
                 with autocast():
                     image_feature, pgen_ctx = model.gen_ctx(images, args.tpt)
             optimizer = None
-            pgen_ctx = test_time_tuning(model, (image_feature, pgen_ctx), optimizer, scaler, args)
+            pgen_ctx = test_time_tuning(model, (image_feature, pgen_ctx), optimizer, scaler, args, device)
 
         ########################################################################################################
         # The actual inference goes here
