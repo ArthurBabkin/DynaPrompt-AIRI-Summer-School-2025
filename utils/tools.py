@@ -180,3 +180,29 @@ def validate(val_loader, model, criterion, args, output_mask=None):
         progress.display_summary()
 
     return top1.avg
+
+
+def get_device():
+    if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return torch.device('mps')
+    elif torch.cuda.is_available():
+        return torch.device('cuda')
+    else:
+        return torch.device('cpu')
+
+
+def get_autocast_and_scaler(device):
+    if device.type == 'cuda':
+        autocast = torch.cuda.amp.autocast
+        scaler = torch.cuda.amp.GradScaler()
+    elif device.type == 'mps':
+        autocast = torch.autocast
+        scaler = torch.amp.GradScaler()
+    else:
+        try:
+            autocast = torch.cpu.amp.autocast
+        except AttributeError:
+            import contextlib
+            autocast = contextlib.nullcontext
+        scaler = torch.amp.GradScaler()
+    return autocast, scaler

@@ -27,7 +27,7 @@ from clip.custom_clip import get_coop
 from clip.cocoop import get_cocoop
 from data.imagnet_prompts import imagenet_classes
 from data.datautils import AugMixAugmenter, build_dataset
-from utils.tools import Summary, AverageMeter, ProgressMeter, accuracy, load_model_weight, set_random_seed
+from utils.tools import Summary, AverageMeter, ProgressMeter, accuracy, load_model_weight, set_random_seed, get_device, get_autocast_and_scaler
 from data.cls_to_names import *
 from data.fewshot_datasets import fewshot_datasets
 from data.imagenet_variants import thousand_k_to_200, imagenet_a_mask, imagenet_r_mask, imagenet_v_mask
@@ -98,9 +98,10 @@ def main():
 
 
 def main_worker(gpu, args):
-    args.gpu = gpu
+    # args.gpu = gpu  # больше не нужен
     set_random_seed(args.seed)
-    print("Use GPU: {} for training".format(args.gpu))
+    device = get_device()
+    print(f"Use device: {device} for training")
 
     logname = 'logs/' + "{}{}_ctxinit_{}.txt".format(args.log_date, args.lr, args.ctx_init[:])
 
@@ -112,15 +113,15 @@ def main_worker(gpu, args):
     else:
         classnames = imagenet_classes
     if args.cocoop:
-        model = get_cocoop(args.arch, args.test_sets, 'cpu', args.n_ctx)
+        model = get_cocoop(args.arch, args.test_sets, device, args.n_ctx)
         assert args.load is not None
-        load_model_weight(args.load, model, 'cpu', args) # to load to cuda: device="cuda:{}".format(args.gpu)
+        load_model_weight(args.load, model, device, args)
         model_state = deepcopy(model.state_dict())
     else:
-        model = get_coop(args.arch, args.test_sets, args.gpu, args.n_ctx, args.ctx_init)
+        model = get_coop(args.arch, args.test_sets, device, args.n_ctx, args.ctx_init)
         if args.load is not None:
             print("Use pre-trained soft prompt (CoOp) as initialization")
-            pretrained_ctx = torch.load(args.load)['state_dict']['ctx']
+            pretrained_ctx = torch.load(args.load, map_location=device)['state_dict']['ctx']
             assert pretrained_ctx.size()[0] == args.n_ctx
             with torch.no_grad():
                 model.prompt_learner[0].ctx.copy_(pretrained_ctx)
@@ -137,12 +138,7 @@ def main_worker(gpu, args):
     
     log_string(log_file, "=> Model created: visual backbone {}".format(args.arch))
     
-    if not torch.cuda.is_available():
-        print('using CPU, this will be slow')
-    else:
-        assert args.gpu is not None
-        torch.cuda.set_device(args.gpu)
-        model = model.cuda(args.gpu)
+    model = model.to(device)
 
     # define optimizer
     if args.cocoop:
@@ -153,10 +149,8 @@ def main_worker(gpu, args):
         optimizer = torch.optim.AdamW(trainable_param, args.lr)
         optim_state = deepcopy(optimizer.state_dict())
 
-    # setup automatic mixed-precision (Amp) loss scaling
-    scaler = torch.cuda.amp.GradScaler(init_scale=1000)
-
-    print('=> Using native Torch AMP. Training in mixed precision.')
+    autocast, scaler = get_autocast_and_scaler(device)
+    print('=> Using native Torch AMP or autocast. Training in mixed precision if возможно.')
 
     cudnn.benchmark = True
 
@@ -212,7 +206,7 @@ def main_worker(gpu, args):
             model.prompt_generator.reset_classnames(classnames, args.arch)
             model = model.cpu()
             model_state = model.state_dict()
-            model = model.cuda(args.gpu)
+            model = model.to(device)
         else:
             model.reset_classnames(classnames, args.arch)
 
@@ -223,7 +217,7 @@ def main_worker(gpu, args):
                     batch_size=batchsize, shuffle=True,
                     num_workers=args.workers, pin_memory=True)
             
-        results[set_id] = test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state, scaler, args)
+        results[set_id] = test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state, scaler, device, autocast, args)
         del val_dataset, val_loader
         # try:
         log_string(log_file, "=> Acc. on testset [{}]: @1 {}/ @5 {}".format(set_id, results[set_id][0], results[set_id][1]))
@@ -242,7 +236,7 @@ def main_worker(gpu, args):
     log_string(log_file, "\n")
 
 
-def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state, scaler, args):
+def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state, scaler, device, autocast, args):
     batch_time = AverageMeter('Time', ':6.3f', Summary.NONE)
     top1 = AverageMeter('Acc@1', ':6.2f', Summary.AVERAGE)
     top5 = AverageMeter('Acc@5', ':6.2f', Summary.AVERAGE)
@@ -259,19 +253,19 @@ def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state,
             model.reset()
     end = time.time()
     for i, (images, target) in enumerate(val_loader):
-        assert args.gpu is not None
+        assert device is not None
         if isinstance(images, list):
             for k in range(len(images)):
-                images[k] = images[k].cuda(args.gpu, non_blocking=True)
+                images[k] = images[k].to(device, non_blocking=True)
             image = images[0]
         else:
             if len(images.size()) > 4:
                 # when using ImageNet Sampler as the dataset
                 assert images.size()[0] == 1
                 images = images.squeeze(0)
-            images = images.cuda(args.gpu, non_blocking=True)
+            images = images.to(device, non_blocking=True)
             image = images
-        target = target.cuda(args.gpu, non_blocking=True)
+        target = target.to(device, non_blocking=True)
         if args.tpt:
             images = torch.cat(images, dim=0)
 
@@ -284,7 +278,7 @@ def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state,
             test_time_tuning(model, images, optimizer, scaler, args)
         else:
             with torch.no_grad():
-                with torch.cuda.amp.autocast():
+                with autocast():
                     image_feature, pgen_ctx = model.gen_ctx(images, args.tpt)
             optimizer = None
             pgen_ctx = test_time_tuning(model, (image_feature, pgen_ctx), optimizer, scaler, args)
@@ -295,7 +289,7 @@ def test_time_adapt_eval(val_loader, model, model_state, optimizer, optim_state,
                 image_feature = image_feature[0].unsqueeze(0)
         
         with torch.no_grad():
-            with torch.cuda.amp.autocast():
+            with autocast():
                 if args.cocoop:
                     output = model((image_feature, pgen_ctx))
                 else:

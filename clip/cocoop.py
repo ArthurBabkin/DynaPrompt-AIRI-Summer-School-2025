@@ -11,6 +11,7 @@ from .custom_clip import TextEncoder
 from data.imagnet_prompts import imagenet_classes
 from data.cls_to_names import *
 from data.fewshot_datasets import fewshot_datasets
+from utils.tools import get_device, get_autocast_and_scaler
 
 _tokenizer = _Tokenizer()
 
@@ -137,9 +138,11 @@ class CoCoOpPromptLearner(nn.Module):
         return prompts
 
 class CoCoOpCLIP(nn.Module):
-    def __init__(self, device, classnames, criterion='cosine', arch="ViT-L/14",
+    def __init__(self, device=None, classnames=None, criterion='cosine', arch="ViT-L/14",
                         n_ctx=16, ctx_init="a_photo_of_a", ctx_position='end'):
         super().__init__()
+        if device is None:
+            device = get_device()
         clip, _, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
         self.image_encoder = clip.visual
         self.text_encoder = TextEncoder(clip)
@@ -149,6 +152,7 @@ class CoCoOpCLIP(nn.Module):
         self.tokenized_prompts = self.prompt_generator.tokenized_prompts
         self.criterion = criterion
         self.dtype = clip.dtype
+        self.device = device
 
     def inference(self, image, label=None):
         tokenized_prompts = self.prompt_generator.tokenized_prompts
@@ -170,15 +174,15 @@ class CoCoOpCLIP(nn.Module):
         return logits
 
     def gen_ctx(self, image, aug=False):
+        autocast, _ = get_autocast_and_scaler(self.device)
         with torch.no_grad():
-            with torch.cuda.amp.autocast():
+            with autocast():
                 image_features = self.image_encoder(image.type(self.dtype))
                 if aug:
                     image_feature_avg = image_features[0].unsqueeze(0)
                 else:
                     image_feature_avg = image_features.mean(dim=0, keepdim=True)
                 ctx = self.prompt_generator(image_feature_avg, ctx_only=True)
-
         return image_features, ctx.detach().clone()
 
     def forward_ctx(self, image_features, ctx):

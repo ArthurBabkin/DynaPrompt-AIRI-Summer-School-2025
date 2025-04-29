@@ -12,19 +12,20 @@ from .simple_tokenizer import SimpleTokenizer as _Tokenizer
 from data.imagnet_prompts import imagenet_classes
 from data.fewshot_datasets import fewshot_datasets
 from data.cls_to_names import *
+from utils.tools import get_device
 
 _tokenizer = _Tokenizer()
 
 DOWNLOAD_ROOT='~/.cache/clip'
 
 class ClipImageEncoder(nn.Module):
-    def __init__(self, device, arch="ViT-L/14", image_resolution=224, n_class=1000):
+    def __init__(self, device=None, arch="ViT-L/14", image_resolution=224, n_class=1000):
         super(ClipImageEncoder, self).__init__()
+        if device is None:
+            device = get_device()
         clip, embed_dim, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
         self.encoder = clip.visual
         del clip.transformer
-        torch.cuda.empty_cache()
-        
         self.cls_head = nn.Linear(embed_dim, n_class)
     
     @property
@@ -330,7 +331,7 @@ class ClipTestTimeTuningI(nn.Module):
         self.logit_scale = clip.logit_scale.data
         # prompt tuning
         self.num_p = num_p
-        self.prompt_learner = PromptLearnerI(clip, classnames, batch_size, n_ctx, ctx_init, ctx_position, learned_cls, num_p, featinit, num_select_p)
+        self.prompt_learner = PromptLearner(clip, classnames, batch_size, n_ctx, ctx_init, ctx_position, learned_cls, num_p, featinit, num_select_p)
         self.criterion = criterion
         
     @property

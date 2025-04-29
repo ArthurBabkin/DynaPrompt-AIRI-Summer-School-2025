@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from .model import build_model
 from .simple_tokenizer import SimpleTokenizer as _Tokenizer
+from utils.tools import get_device
 
 try:
     from torchvision.transforms import InterpolationMode
@@ -91,7 +92,7 @@ def available_models() -> List[str]:
     return list(_MODELS.keys())
 
 
-def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu", jit: bool = False, download_root: str = None):
+def load(name: str, device: Union[str, torch.device] = None, jit: bool = False, download_root: str = None):
     """Load a CLIP model
 
     Parameters
@@ -116,6 +117,8 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
     preprocess : Callable[[PIL.Image], torch.Tensor]
         A torchvision transform that converts a PIL image into a tensor that the returned model can take as its input
     """
+    if device is None:
+        device = get_device()
     # pdb.set_trace()
     if name in _MODELS:
         model_path = _download(_MODELS[name], download_root or os.path.expanduser("~/.cache/clip"))
@@ -133,7 +136,7 @@ def load(name: str, device: Union[str, torch.device] = "cuda" if torch.cuda.is_a
         if jit:
             warnings.warn(f"File {model_path} is not a JIT archive. Loading as a state dict instead")
             jit = False
-        state_dict = torch.load(model_path, map_location="cpu")
+        state_dict = torch.load(model_path, map_location=device)
 
     embed_dim = model.state_dict()["text_projection"].shape[1]
     if not jit:

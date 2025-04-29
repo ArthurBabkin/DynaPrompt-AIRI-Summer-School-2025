@@ -12,19 +12,20 @@ from .simple_tokenizer import SimpleTokenizer as _Tokenizer
 from data.imagnet_prompts import imagenet_classes
 from data.fewshot_datasets import fewshot_datasets
 from data.cls_to_names import *
+from utils.tools import get_device
 
 _tokenizer = _Tokenizer()
 
 DOWNLOAD_ROOT='~/.cache/clip'
 
 class ClipImageEncoder(nn.Module):
-    def __init__(self, device, arch="ViT-L/14", image_resolution=224, n_class=1000):
+    def __init__(self, device=None, arch="ViT-L/14", image_resolution=224, n_class=1000):
         super(ClipImageEncoder, self).__init__()
+        if device is None:
+            device = get_device()
         clip, embed_dim, _ = load(arch, device=device, download_root=DOWNLOAD_ROOT)
         self.encoder = clip.visual
         del clip.transformer
-        torch.cuda.empty_cache()
-        
         self.cls_head = nn.Linear(embed_dim, n_class)
     
     @property
@@ -104,7 +105,7 @@ class PromptLearner(nn.Module):
         noise_range = self.init_ctx.abs().mean()
         ctx_noise = torch.empty_like(ctx_vectors.unsqueeze(0).repeat(num_p, 1, 1)).uniform_(-noise_range, noise_range)
         ctx_noise[0] = ctx_noise[0] * 0
-        ctx_noise = ctx_noise.cuda()
+        ctx_noise = ctx_noise.to(self.device)
         self.init_ctx = self.init_ctx.unsqueeze(0) + ctx_noise
         # pdb.set_trace()
         prompt_prefix = ctx_init
