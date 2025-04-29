@@ -1,6 +1,6 @@
 #!/bin/bash
 
-data_root='/path/to/data' # your data path
+data_root='datasets/' # your data path (imagenet-r, imagenet-a in my case)
 dataset='A'  # I/A/R/V/S
 logdate='250129'  # name of the log file
 num_p=12  # number of online prompts

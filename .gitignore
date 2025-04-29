@@ -97,4 +97,7 @@ checkpoints/
 *~
 
 # Ignore site build
-_site/ 
+_site/
+
+# Ignore my own datasets (imagenet-r, imagenet-a)
+/datasets/ 
